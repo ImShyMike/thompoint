@@ -1,3 +1,12 @@
+const modal = document.getElementById("markerModal");
+const closeBtn = document.querySelector(".close");
+const cancelBtn = document.getElementById("cancelMarker");
+const addBtn = document.getElementById("addMarker");
+const nameInput = document.getElementById("markerName");
+const descriptionInput = document.getElementById("markerDescription");
+
+const SERVER_URL = "http://192.168.167.220:1447/api";
+
 const ISLAND_POLYGON = [
     ["42.3187", "-71.0094"],
     ["42.3204", "-71.0074"],
@@ -54,50 +63,266 @@ const ISLAND_POLYGON = [
     ["42.3176", "-71.0100"],
 ];
 
-const socket = new WebSocket("ws://localhost:5500");
+let pollingInterval;
+let lastMarkerCheck = 0;
+const POLLING_INTERVAL = 2000;
 
+var polygon;
+var map;
 var markers = [];
+var currentMarkerPosition = null;
 
-var map = L.map("map").setView([42.318, -71.0089], 18);
+async function fetchMarkers() {
+    try {
+        const response = await fetch(`${SERVER_URL}/points`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const markers = await response.json();
+        return markers;
+    } catch (error) {
+        console.error("Error fetching markers:", error);
+        return [];
+    }
+}
 
-L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    minZoom: 16,
-    maxZoom: 19,
-    attribution:
-        '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-}).addTo(map);
+async function pollForNewMarkers() {
+    try {
+        const currentTime = Date.now();
+        const response = await fetch(`${SERVER_URL}/points`);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const newMarkers = await response.json();
+        
+        newMarkers.forEach(marker => {
+            const { name, description, latitude, longitude, id, createdAt, createdBy } = marker;
+            if (name && description && latitude !== undefined && longitude !== undefined) {
+                console.log("Adding marker from API:", name, "at", latitude, longitude);
+                addMarker(
+                    latitude,
+                    longitude,
+                    `<b>${name}</b><br>Coordinates: ${latitude}, ${longitude}<br>${description}`,
+                    name,
+                    true
+                );
+            }
+        });
+        
+        lastMarkerCheck = currentTime;
+    } catch (error) {
+        console.error("Error polling for new markers:", error);
+    }
+}
 
-var southWest = L.latLng(42.306, -70.9989);
-var northEast = L.latLng(42.324, -71.0179);
-var bounds = L.latLngBounds(southWest, northEast);
+function startPolling() {
+    console.log("Starting marker polling...");
+    
+    fetchMarkers().then(markers => {
+        console.log(`Loading ${markers.length} initial markers`);
+        markers.forEach(marker => {
+            const { name, description, latitude, longitude, id, createdAt, createdBy } = marker;
+            if (name && description && latitude !== undefined && longitude !== undefined) {
+                addMarker(
+                    latitude,
+                    longitude,
+                    `<b>${name}</b><br>Coordinates: ${latitude}, ${longitude}<br>${description}`,
+                    name,
+                    true
+                );
+            }
+        });
+        lastMarkerCheck = Date.now();
+        console.log("Initial marker loading complete");
+    });
+    
+    pollingInterval = setInterval(pollForNewMarkers, POLLING_INTERVAL);
+}
 
-map.setMaxBounds(bounds);
-map.on("drag", function () {
-    map.panInsideBounds(bounds, { animate: false });
-});
+function stopPolling() {
+    if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+        console.log("Stopped marker polling");
+    }
+}
 
-const polygon = L.polygon(ISLAND_POLYGON, { color: "transparent" }).addTo(map);
-map.fitBounds(polygon.getBounds());
-
-function addMarker(lat, lon, popupText, tooltip) {
-    var newMarker = L.marker([lat, lon]);
-    if (getClosestMarkerDistance([lat, lon]) < 0.0002) {
+async function sendMarkerData(markerData) {
+    try {
+        const response = await fetch(`${SERVER_URL}/points`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(markerData)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        console.log("Marker data sent successfully");
+        return true;
+    } catch (error) {
+        console.error("Error sending marker data:", error);
         return false;
     }
-    if (tooltip) {
-        newMarker
-            .bindTooltip(tooltip, {
-                permanent: true,
-                direction: "top",
-                offset: L.point(-15, -5),
-            })
-            .openTooltip();
+}
+
+function showMarkerModal(lat, lon) {
+    currentMarkerPosition = { lat, lon };
+    const modal = document.getElementById("markerModal");
+    const nameInput = document.getElementById("markerName");
+    const descriptionInput = document.getElementById("markerDescription");
+
+    nameInput.value = "";
+    descriptionInput.value = "";
+
+    modal.classList.add("show");
+    nameInput.focus();
+}
+
+function hideMarkerModal() {
+    const modal = document.getElementById("markerModal");
+    modal.classList.remove("show");
+    currentMarkerPosition = null;
+}
+
+function setupModalEventListeners() {
+    closeBtn.addEventListener("click", hideMarkerModal);
+    cancelBtn.addEventListener("click", hideMarkerModal);
+
+    modal.addEventListener("click", (e) => {
+        if (e.target === modal) {
+            hideMarkerModal();
+        }
+    });
+
+    addBtn.addEventListener("click", async () => {
+        const name = nameInput.value.trim();
+        const description = descriptionInput.value.trim();
+
+        if (!name || !description) {
+            alert("Marker name and description cannot be empty.");
+            return;
+        }
+
+        if (currentMarkerPosition) {
+            const { lat, lon } = currentMarkerPosition;
+
+            addMarker(
+                lat,
+                lon,
+                `<b>${name}</b><br>Coordinates: ${lat}, ${lon}<br>${description}`,
+                name,
+                false
+            );
+
+            const markerData = {
+                name: name,
+                description: description,
+                latitude: parseFloat(lat),
+                longitude: parseFloat(lon),
+                createdBy: "User",
+            };
+
+            await sendMarkerData(markerData);
+        }
+
+        hideMarkerModal();
+    });
+
+    nameInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            descriptionInput.focus();
+        }
+    });
+
+    descriptionInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            addBtn.click();
+        }
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && modal.classList.contains("show")) {
+            hideMarkerModal();
+        }
+    });
+}
+
+function main() {
+    map = L.map("map", {preferCanvas: true}).setView([42.318, -71.0089], 18);
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        minZoom: 16,
+        maxZoom: 19,
+        attribution:
+            '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    var southWest = L.latLng(42.306, -70.9989);
+    var northEast = L.latLng(42.324, -71.0179);
+    var bounds = L.latLngBounds(southWest, northEast);
+
+    map.setMaxBounds(bounds);
+    map.on("drag", function () {
+        map.panInsideBounds(bounds, { animate: false });
+    });
+
+    polygon = L.polygon(ISLAND_POLYGON, { color: "transparent" }).addTo(map);
+
+    map.on("click", function (e) {
+        onMapClick(e);
+    });
+
+    setupModalEventListeners();
+
+    startPolling();
+}
+
+function addMarker(lat, lon, popupText, tooltip, skipViewReset = false) {
+    try {
+        if (!map) {
+            console.warn("Map not yet initialized, cannot add marker");
+            return false;
+        }
+        var newMarker = L.marker([lat, lon]);
+        if (getClosestMarkerDistance([lat, lon]) < 0.0002) {
+            return false;
+        }
+        if (tooltip) {
+            newMarker
+                .bindTooltip(tooltip, {
+                    permanent: true,
+                    direction: "top",
+                    offset: L.point(-15, -5),
+                })
+                .openTooltip();
+        }
+        newMarker.addTo(map);
+        if (popupText) {
+            newMarker.bindPopup(popupText);
+        }
+        if (!skipViewReset) {
+            map.setView([lat, lon], map.getZoom());
+        }
+        return newMarker;
+    } catch (error) {
+        console.error("Error in addMarker function:", error);
+        console.error("Parameters:", {
+            lat,
+            lon,
+            popupText,
+            tooltip,
+            skipViewReset,
+        });
+        return false;
     }
-    newMarker.addTo(map);
-    if (popupText) {
-        newMarker.bindPopup(popupText);
-    }
-    return newMarker;
 }
 
 function isPosInsidePolygon(pos, poly) {
@@ -126,6 +351,9 @@ function isPosInsidePolygon(pos, poly) {
 }
 
 function getClosestMarkerDistance(pos) {
+    if (!map) {
+        return 0;
+    }
     var closestDistance = Infinity;
     map.eachLayer(function (layer) {
         if (layer instanceof L.Marker) {
@@ -151,70 +379,15 @@ function onMapClick(e) {
     ) {
         return;
     }
-    var markerName = prompt("Enter marker name:", "New Marker");
-    var markerDescription = prompt("Enter marker description:");
-    if (!markerName || !markerDescription) {
-        alert("Marker name and description cannot be empty.");
-        return;
-    }
-    var markerDescription = `Coordinates: ${lat}, ${lon}<br>${markerDescription}`;
-    addMarker(
-        lat,
-        lon,
-        `<b>${markerName}</b><br>${markerDescription}`,
-        markerName
-    );
+
+    showMarkerModal(lat, lon);
 }
-map.on("click", onMapClick);
 
-socket.addEventListener("message", (event) => {
-    console.log("Message from server", event.data);
-
-    let data;
-    try {
-        data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
-    } catch {
-        console.log("Received data is not valid JSON");
-        return;
-    }
-
-    if (data.type !== "text" || !data.value) {
-        console.log("Unknown or missing data received");
-        return;
-    }
-
-    let msg;
-    try {
-        msg = JSON.parse(data.value);
-    } catch {
-        console.log("Received value is not valid JSON");
-        return;
-    }
-
-    const { eventType, name, description, lat, lon } = msg;
-    if (!(eventType && name && description && lat && lon)) {
-        console.log("Received JSON is missing required fields");
-        return;
-    }
-
-    if (eventType === "addMarker") {
-        addMarker(
-            lat,
-            lon,
-            `<b>${name}</b><br>Coordinates: ${lat}, ${lon}<br>${description}`,
-            name
-        );
-    }
+// Cleanup when page unloads
+window.addEventListener("beforeunload", () => {
+    stopPolling();
 });
 
-function requestAddMarker(marker) {
-    socket.send(
-        JSON.stringify({
-            eventType: "addMarker",
-            name: marker.name,
-            description: marker.description,
-            lat: marker.lat,
-            lon: marker.lon,
-        })
-    );
-}
+document.addEventListener("DOMContentLoaded", () => {
+    main();
+});
