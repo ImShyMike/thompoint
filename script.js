@@ -4,6 +4,10 @@ const cancelBtn = document.getElementById("cancelMarker");
 const addBtn = document.getElementById("addMarker");
 const nameInput = document.getElementById("markerName");
 const descriptionInput = document.getElementById("markerDescription");
+const logoutBtn = document.getElementById("logoutBtn");
+const usernameDisplay = document.getElementById("usernameDisplay");
+
+var current_username = "";
 
 const SERVER_URL = "http://192.168.167.220:1447/api";
 
@@ -82,6 +86,7 @@ async function sendMarkerData(markerData) {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
+                Authorization: localStorage.getItem("token", ""),
             },
             body: JSON.stringify(markerData),
         });
@@ -111,10 +116,125 @@ function showMarkerModal(lat, lon) {
     nameInput.focus();
 }
 
+function showLoginModal() {
+    console.log("Attempting to show login modal...");
+    const modal = document.getElementById("loginModal");
+    if (!modal) {
+        console.error("Login modal element not found!");
+        return;
+    }
+
+    const nameInput = document.getElementById("modalUsername");
+    const passwordInput = document.getElementById("modalPassword");
+
+    if (nameInput) nameInput.value = "";
+    if (passwordInput) passwordInput.value = "";
+
+    modal.classList.add("show");
+    console.log("Login modal should now be visible");
+
+    if (nameInput) {
+        nameInput.focus();
+    }
+}
+
 function hideMarkerModal() {
     const modal = document.getElementById("markerModal");
     modal.classList.remove("show");
     currentMarkerPosition = null;
+}
+
+function hideLoginModal() {
+    const modal = document.getElementById("loginModal");
+    modal.classList.remove("show");
+}
+
+async function registerUser(username, password) {
+    try {
+        const response = await fetch(`${SERVER_URL}/auth/register`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(
+                `HTTP error! status: ${response.status} - ${errorData}`
+            );
+        }
+
+        const data = await response.json();
+        console.log("Registration successful:", data);
+
+        if (data.token) {
+            localStorage.setItem("token", data.token);
+            localStorage.setItem("username", username);
+            current_username = username;
+            console.log("Current username set to:", current_username);
+            hideLoginModal();
+            return true;
+        } else {
+            throw new Error("No token received from server");
+        }
+    } catch (error) {
+        console.error("Error registering user:", error);
+        alert(`Registration failed: ${error.message}`);
+        return false;
+    }
+}
+
+async function loginUser(username, password) {
+    try {
+        const response = await fetch(`${SERVER_URL}/auth/login`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                username: username,
+                password: password,
+            }),
+        });
+
+        if (!response.ok) {
+            const errorData = await response.text();
+            throw new Error(
+                `HTTP error! status: ${response.status} - ${errorData}`
+            );
+        }
+
+        const data = await response.json();
+        console.log("Login successful:", data);
+
+        if (data.token) {
+            localStorage.setItem("token", data.token);
+            localStorage.setItem("username", username);
+            current_username = username;
+            console.log("Current username set to:", current_username);
+             usernameDisplay.textContent = current_username
+                ? `@${current_username}`
+                : "@Guest";
+            if (!current_username) {
+                logoutBtn.style.display = "none";
+            } else {
+                logoutBtn.style.display = "inline-block";
+            }
+            hideLoginModal();
+            return true;
+        } else {
+            throw new Error("No token received from server");
+        }
+    } catch (error) {
+        console.error("Error logging in user:", error);
+        alert(`Login failed: ${error.message}`);
+        return false;
+    }
 }
 
 function setupModalEventListeners() {
@@ -124,6 +244,69 @@ function setupModalEventListeners() {
     modal.addEventListener("click", (e) => {
         if (e.target === modal) {
             hideMarkerModal();
+        }
+    });
+
+    const loginModal = document.getElementById("loginModal");
+    const loginCloseBtn = loginModal.querySelector(".close");
+    const loginBtn = document.getElementById("loginBtn");
+    const registerBtn = document.getElementById("registerBtn");
+    const usernameInput = document.getElementById("modalUsername");
+    const passwordInput = document.getElementById("modalPassword");
+
+    if (loginCloseBtn) {
+        loginCloseBtn.addEventListener("click", hideLoginModal);
+    }
+
+    if (loginBtn) {
+        loginBtn.addEventListener("click", async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!username || !password) {
+                alert("Username and password cannot be empty.");
+                return;
+            }
+
+            await loginUser(username, password);
+        });
+    }
+
+    if (registerBtn) {
+        registerBtn.addEventListener("click", async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+
+            if (!username || !password) {
+                alert("Username and password cannot be empty.");
+                return;
+            }
+
+            await registerUser(username, password);
+        });
+    }
+
+    if (usernameInput) {
+        usernameInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                passwordInput.focus();
+            }
+        });
+    }
+
+    if (passwordInput) {
+        passwordInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                loginBtn.click();
+            }
+        });
+    }
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && loginModal.classList.contains("show")) {
+            hideLoginModal();
         }
     });
 
@@ -152,7 +335,6 @@ function setupModalEventListeners() {
                 description: description,
                 latitude: parseFloat(lat),
                 longitude: parseFloat(lon),
-                createdBy: "User",
             };
 
             await sendMarkerData(markerData);
@@ -182,41 +364,67 @@ function setupModalEventListeners() {
     });
 }
 
-function main() {
-    map = L.map("map", { preferCanvas: true }).setView([42.318, -71.0089], 18);
-
-    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        minZoom: 16,
-        maxZoom: 19,
-        attribution:
-            '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(map);
-
-    var southWest = L.latLng(42.306, -70.9989);
-    var northEast = L.latLng(42.324, -71.0179);
-    var bounds = L.latLngBounds(southWest, northEast);
-
-    map.setMaxBounds(bounds);
-    map.on("drag", function () {
-        map.panInsideBounds(bounds, { animate: false });
-    });
-
-    polygon = L.polygon(ISLAND_POLYGON, { color: "transparent" }).addTo(map);
-
-    map.on("click", function (e) {
-        onMapClick(e);
-    });
-
-    setupModalEventListeners();
+function deleteMarkerById(id) {
+    try {
+        fetch(`${SERVER_URL}/points/${id}`, {
+            method: "DELETE",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: localStorage.getItem("token", ""),
+            },
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                console.log(`Marker with ID ${id} deleted successfully`);
+                removeMarkerById(id);
+            })
+            .catch((error) => {
+                console.error(`Error deleting marker with ID ${id}:`, error);
+            });
+    } catch (error) {
+        console.error("Error in deleteMarkerById function:", error);
+        console.error("Parameters:", { id });
+    }
 }
 
-function addMarker(lat, lon, popupText, tooltip, skipViewReset = false) {
+function logout() {
+    try {
+        fetch(`${SERVER_URL}/auth/logout`, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: localStorage.getItem("token", ""),
+            },
+        })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                console.log("Logout successful");
+                localStorage.removeItem("token");
+                localStorage.removeItem("username");
+                usernameDisplay.textContent = "@Guest";
+                logoutBtn.style.display = "none";
+                current_username = "";
+                showLoginModal();
+            })
+            .catch((error) => {
+                console.error("Error during logout:", error);
+            });
+    } catch (error) {
+        console.error("Error in logout function:", error);
+    }
+}
+
+function addMarker(id, lat, lon, popupText, tooltip, skipViewReset = false) {
     try {
         if (!map) {
             console.warn("Map not yet initialized, cannot add marker");
             return false;
         }
-        var newMarker = L.marker([lat, lon]);
+        var newMarker = L.marker([lat, lon], { id: id });
         if (getClosestMarkerDistance([lat, lon]) < 0.0002) {
             return false;
         }
@@ -250,6 +458,35 @@ function addMarker(lat, lon, popupText, tooltip, skipViewReset = false) {
     }
 }
 
+function removeMarkerById(id) {
+    try {
+        if (!map) {
+            console.warn("Map not yet initialized, cannot remove marker");
+            return false;
+        }
+
+        let markerFound = false;
+        map.eachLayer(function (layer) {
+            if (layer instanceof L.Marker && layer.options.id === id) {
+                map.removeLayer(layer);
+                markerFound = true;
+                console.log(`Marker with ID ${id} removed successfully`);
+            }
+        });
+
+        if (!markerFound) {
+            console.warn(`Marker with ID ${id} not found`);
+        }
+
+        return markerFound;
+    } catch (error) {
+        console.error("Error in removeMarkerById function:", error);
+        console.error("Parameters:", { id });
+        return false;
+    }
+}
+
+// ty stack overflow
 function isPosInsidePolygon(pos, poly) {
     var inside = false;
     var x = pos[0],
@@ -295,6 +532,78 @@ function getClosestMarkerDistance(pos) {
     return closestDistance;
 }
 
+function initializeUser() {
+    console.log("Initializing user...");
+    const storedUsername = localStorage.getItem("username");
+    const token = localStorage.getItem("token");
+
+    console.log("Stored username:", storedUsername);
+    console.log("Token exists:", !!token);
+
+    usernameDisplay.textContent = storedUsername
+        ? `@${storedUsername}`
+        : "@Guest";
+    if (!storedUsername) {
+        logoutBtn.style.display = "none";
+    } else {
+        logoutBtn.style.display = "inline-block";
+    }
+
+    if (storedUsername && token) {
+        current_username = storedUsername;
+        console.log("Loaded username from localStorage:", current_username);
+    } else {
+        localStorage.removeItem("username");
+        localStorage.removeItem("token");
+        current_username = "";
+        console.log("No valid auth found, will show login modal");
+
+        showLoginModal();
+    }
+}
+
+function isAuthenticated() {
+    const token = localStorage.getItem("token");
+    const username = localStorage.getItem("username");
+    return token && username && current_username;
+}
+
+function logoutUser() {
+    localStorage.removeItem("token");
+    localStorage.removeItem("username");
+    current_username = "";
+    console.log("User logged out");
+    showLoginModal();
+}
+
+function main() {
+    map = L.map("map", { preferCanvas: true }).setView([42.318, -71.0089], 18);
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        minZoom: 16,
+        maxZoom: 19,
+        attribution:
+            '&copy; <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    var southWest = L.latLng(42.306, -70.9989);
+    var northEast = L.latLng(42.324, -71.0179);
+    var bounds = L.latLngBounds(southWest, northEast);
+
+    map.setMaxBounds(bounds);
+    map.on("drag", function () {
+        map.panInsideBounds(bounds, { animate: false });
+    });
+
+    polygon = L.polygon(ISLAND_POLYGON, { color: "transparent" }).addTo(map);
+
+    map.on("click", function (e) {
+        onMapClick(e);
+    });
+
+    setupModalEventListeners();
+}
+
 function onMapClick(e) {
     var lat = e.latlng.lat.toFixed(4);
     var lon = e.latlng.lng.toFixed(4);
@@ -305,32 +614,62 @@ function onMapClick(e) {
         return;
     }
 
+    if (!isAuthenticated()) {
+        showLoginModal();
+        return;
+    }
+
     showMarkerModal(lat, lon);
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    console.log("DOM Content Loaded");
+    initializeUser();
     main();
+
+    setTimeout(() => {
+        const modal = document.getElementById("loginModal");
+        console.log("Modal element found:", !!modal);
+        if (modal) {
+            console.log("Modal classes:", modal.className);
+        }
+    }, 500);
 });
 
 socket.on("connect", () => {
     socket.on("NEW_POINT", (point) => {
         console.log("New point received:", point);
+        var btn =
+            point.createdBy == current_username
+                ? `<button onclick=deleteMarkerById(${point.id}) class="delete-btn"></button>`
+                : "";
         addMarker(
+            point.id,
             point.latitude,
             point.longitude,
-            `<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
+            `${btn}<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
             point.name,
             true
         );
     });
 
+    socket.on("REMOVE_POINT", (pointId) => {
+        console.log("Remove point received:", pointId);
+        removeMarkerById(pointId);
+    });
+
     socket.on("READY", (points) => {
         points.forEach((point) => {
             console.log("Received point:", point);
+            var btn =
+                point.createdBy == current_username
+                    ? `<button onclick=deleteMarkerById(${point.id}) class="delete-btn">🗑️</button>`
+                    : "";
             addMarker(
+                point.id,
                 point.latitude,
                 point.longitude,
-                `<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
+                `${btn}<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
                 point.name,
                 true
             );

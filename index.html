@@ -13,6 +13,11 @@
     </head>
     <body>
         <div id="map"></div>
+
+        <div id="topBar">
+            <a id="usernameDisplay">@Guest</a>
+            <button id="logoutBtn" onclick="logout()" class="btn">Logout</button>
+        </div>
         
         <div id="markerModal" class="modal">
             <div class="modal-content">
@@ -33,6 +38,29 @@
                 <div class="modal-footer">
                     <button id="cancelMarker" class="btn btn-cancel">Cancel</button>
                     <button id="addMarker" class="btn btn-add">Add Marker</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="loginModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Login / Register</h2>
+                    <span class="close">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="input-group">
+                        <label for="modalUsername">Username:</label>
+                        <input type="text" id="modalUsername" placeholder="your_username">
+                    </div>
+                    <div class="input-group">
+                        <label for="modalPassword">Password:</label>
+                        <input id="modalPassword" type="password" placeholder="password123"></input>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="loginBtn" class="btn btn-cancel">Login</button>
+                    <button id="registerBtn" class="btn btn-add">Register</button>
                 </div>
             </div>
         </div>
