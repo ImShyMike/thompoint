@@ -7,6 +7,11 @@ const descriptionInput = document.getElementById("markerDescription");
 
 const SERVER_URL = "http://192.168.167.220:1447/api";
 
+const socket = io("ws://192.168.167.220:1448", {
+    ackTimeout: 10000,
+    retries: 3,
+});
+
 const ISLAND_POLYGON = [
     ["42.3187", "-71.0094"],
     ["42.3204", "-71.0074"],
@@ -65,10 +70,6 @@ const ISLAND_POLYGON = [
 
 let pollingInterval;
 let lastMarkerCheck = 0;
-const socket = io("ws://192.168.167.220:1448", {
-    ackTimeout: 10000,
-    retries: 3,
-});
 
 var polygon;
 var map;
@@ -338,6 +339,5 @@ socket.on("connect", () => {
 
     socket.on("disconnect", () => {
         console.log("Disconnected from server");
-        
     });
 });
