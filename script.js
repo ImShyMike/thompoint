@@ -65,104 +65,30 @@ const ISLAND_POLYGON = [
 
 let pollingInterval;
 let lastMarkerCheck = 0;
-const POLLING_INTERVAL = 2000;
+const socket = io("ws://192.168.167.220:1448", {
+    ackTimeout: 10000,
+    retries: 3,
+});
 
 var polygon;
 var map;
 var markers = [];
 var currentMarkerPosition = null;
 
-async function fetchMarkers() {
-    try {
-        const response = await fetch(`${SERVER_URL}/points`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const markers = await response.json();
-        return markers;
-    } catch (error) {
-        console.error("Error fetching markers:", error);
-        return [];
-    }
-}
-
-async function pollForNewMarkers() {
-    try {
-        const currentTime = Date.now();
-        const response = await fetch(`${SERVER_URL}/points`);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const newMarkers = await response.json();
-        
-        newMarkers.forEach(marker => {
-            const { name, description, latitude, longitude, id, createdAt, createdBy } = marker;
-            if (name && description && latitude !== undefined && longitude !== undefined) {
-                console.log("Adding marker from API:", name, "at", latitude, longitude);
-                addMarker(
-                    latitude,
-                    longitude,
-                    `<b>${name}</b><br>Coordinates: ${latitude}, ${longitude}<br>${description}`,
-                    name,
-                    true
-                );
-            }
-        });
-        
-        lastMarkerCheck = currentTime;
-    } catch (error) {
-        console.error("Error polling for new markers:", error);
-    }
-}
-
-function startPolling() {
-    console.log("Starting marker polling...");
-    
-    fetchMarkers().then(markers => {
-        console.log(`Loading ${markers.length} initial markers`);
-        markers.forEach(marker => {
-            const { name, description, latitude, longitude, id, createdAt, createdBy } = marker;
-            if (name && description && latitude !== undefined && longitude !== undefined) {
-                addMarker(
-                    latitude,
-                    longitude,
-                    `<b>${name}</b><br>Coordinates: ${latitude}, ${longitude}<br>${description}`,
-                    name,
-                    true
-                );
-            }
-        });
-        lastMarkerCheck = Date.now();
-        console.log("Initial marker loading complete");
-    });
-    
-    pollingInterval = setInterval(pollForNewMarkers, POLLING_INTERVAL);
-}
-
-function stopPolling() {
-    if (pollingInterval) {
-        clearInterval(pollingInterval);
-        pollingInterval = null;
-        console.log("Stopped marker polling");
-    }
-}
-
 async function sendMarkerData(markerData) {
     try {
         const response = await fetch(`${SERVER_URL}/points`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-                'Content-Type': 'application/json',
+                "Content-Type": "application/json",
             },
-            body: JSON.stringify(markerData)
+            body: JSON.stringify(markerData),
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         console.log("Marker data sent successfully");
         return true;
     } catch (error) {
@@ -256,7 +182,7 @@ function setupModalEventListeners() {
 }
 
 function main() {
-    map = L.map("map", {preferCanvas: true}).setView([42.318, -71.0089], 18);
+    map = L.map("map", { preferCanvas: true }).setView([42.318, -71.0089], 18);
 
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
         minZoom: 16,
@@ -281,8 +207,6 @@ function main() {
     });
 
     setupModalEventListeners();
-
-    startPolling();
 }
 
 function addMarker(lat, lon, popupText, tooltip, skipViewReset = false) {
@@ -383,11 +307,37 @@ function onMapClick(e) {
     showMarkerModal(lat, lon);
 }
 
-// Cleanup when page unloads
-window.addEventListener("beforeunload", () => {
-    stopPolling();
-});
-
 document.addEventListener("DOMContentLoaded", () => {
     main();
+});
+
+socket.on("connect", () => {
+    socket.on("NEW_POINT", (point) => {
+        console.log("New point received:", point);
+        addMarker(
+            point.latitude,
+            point.longitude,
+            `<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
+            point.name,
+            true
+        );
+    });
+
+    socket.on("READY", (points) => {
+        points.forEach((point) => {
+            console.log("Received point:", point);
+            addMarker(
+                point.latitude,
+                point.longitude,
+                `<b>${point.name}</b><br>Coordinates: ${point.latitude}, ${point.longitude}<br>Created by: ${point.createdBy}<br>${point.description}`,
+                point.name,
+                true
+            );
+        });
+    });
+
+    socket.on("disconnect", () => {
+        console.log("Disconnected from server");
+        
+    });
 });
