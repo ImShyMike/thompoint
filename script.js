@@ -168,28 +168,37 @@ function onMapClick(e) {
 map.on("click", onMapClick);
 
 socket.addEventListener("message", (event) => {
-    console.log("Message from server ", event.data);
-    if (event.data.type != "text") {
-        console.log("Unkown data received");
-        return;
-    }
+    console.log("Message from server", event.data);
+
+    let data;
     try {
-        var parsedJson = JSON.parse(event.data.value);
+        data = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
     } catch {
-        console.log("Received data is not JSON");
+        console.log("Received data is not valid JSON");
         return;
     }
-    var eventType = parsedJson.eventType;
-    var name = parsedJson.name;
-    var description = parsedJson.description;
-    var lat = parsedJson.lat;
-    var lon = parsedJson.lon;
-    if (!name || !description || !lat || !lon || !eventType) {
+
+    if (data.type !== "text" || !data.value) {
+        console.log("Unknown or missing data received");
+        return;
+    }
+
+    let msg;
+    try {
+        msg = JSON.parse(data.value);
+    } catch {
+        console.log("Received value is not valid JSON");
+        return;
+    }
+
+    const { eventType, name, description, lat, lon } = msg;
+    if (!(eventType && name && description && lat && lon)) {
         console.log("Received JSON is missing required fields");
         return;
     }
-    if (eventType == "addMarker") {
-        var marker = addMarker(
+
+    if (eventType === "addMarker") {
+        addMarker(
             lat,
             lon,
             `<b>${name}</b><br>Coordinates: ${lat}, ${lon}<br>${description}`,
@@ -199,5 +208,13 @@ socket.addEventListener("message", (event) => {
 });
 
 function requestAddMarker(marker) {
-    return; // TODO
+    socket.send(
+        JSON.stringify({
+            eventType: "addMarker",
+            name: marker.name,
+            description: marker.description,
+            lat: marker.lat,
+            lon: marker.lon,
+        })
+    );
 }
