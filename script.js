@@ -9,9 +9,9 @@ const usernameDisplay = document.getElementById("usernameDisplay");
 
 var current_username = "";
 
-const SERVER_URL = "http://192.168.167.220:1447/api";
+const SERVER_URL = "https://thompoint.povario.com/api";
 
-const socket = io("ws://192.168.167.220:1448", {
+const socket = io("wss://thompoint.povario.com", {
     ackTimeout: 10000,
     retries: 3,
 });
